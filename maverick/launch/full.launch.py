@@ -16,7 +16,8 @@ def generate_launch_description():
     node_params = {
         'shoulderFlexion': [('left_shoulder_flexion', 'left'), ('right_shoulder_flexion', 'right')],
         'shoulderAdduction': [('left_shoulder_adduction', 'left'), ('right_shoulder_adduction', 'right')],
-        'elbowFlexion': [('left_elbow_flexion', 'left'), ('right_elbow_flexion', 'right')]
+        'elbowFlexion': [('left_elbow_flexion', 'left'), ('right_elbow_flexion', 'right')],
+        'gripperControl': [('left_gripper_control', 'left'), ('right_gripper_control', 'right')]
     }
 
     ld = LaunchDescription([
@@ -47,6 +48,8 @@ def generate_launch_description():
         # Display joint states node
         Node(package=package_name, executable='displayJointStates', output='screen'),
 
+        Node(package=package_name, executable='gripperControl', output='screen'),
+    
         # RViz
         Node(package='rviz2', executable='rviz2', output='screen', arguments=['-d', LaunchConfiguration('rviz_config')])
     ])
