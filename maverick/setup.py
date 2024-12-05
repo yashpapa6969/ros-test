@@ -34,6 +34,7 @@ setup(
             'elbowFlexion = maverick.elbowFlexion:main',
             'jointStatePublisher = maverick.jointStatePublisher:main',
             'displayJointStates = maverick.displayJointStates:main',
+            'gripperControl = maverick.gripperControl:main',
         ],
     },
 )
