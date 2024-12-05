@@ -2,7 +2,7 @@
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
-from std_msgs.msg import String
+from std_msgs.msg import Float64MultiArray
 import cv2
 import mediapipe as mp
 import numpy as np
@@ -15,7 +15,7 @@ class GripperControlNode(Node):
         self.mp_hands = mp.solutions.hands
         self.hands = self.mp_hands.Hands(
             static_image_mode=False,
-            max_num_hands=1,  # Only track one hand
+            max_num_hands=2,  # Track both hands
             min_detection_confidence=0.5,
             min_tracking_confidence=0.5
         )
@@ -26,18 +26,28 @@ class GripperControlNode(Node):
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
             
-        # Publisher for gripper commands
-        self.gripper_pub = self.create_publisher(
-            String,
-            '/gripper/command',
+        # Publishers for gripper commands
+        self.left_gripper_pub = self.create_publisher(
+            Float64MultiArray,
+            '/left_open_manipulator_controller/commands',
+            10)
+            
+        self.right_gripper_pub = self.create_publisher(
+            Float64MultiArray,
+            '/right_open_manipulator_controller/commands',
             10)
             
         # Create timer for camera processing
         self.create_timer(0.03, self.process_frame)  # ~30fps
         
         # State variables
-        self.last_command = None
+        self.last_left_position = 0.0
+        self.last_right_position = 0.0
         self.command_threshold = 0.15  # Threshold for grip/release detection
+        
+        # Gripper limits from URDF
+        self.gripper_min = -0.01
+        self.gripper_max = 0.019
 
     def process_frame(self):
         success, frame = self.cap.read()
@@ -45,6 +55,9 @@ class GripperControlNode(Node):
             self.get_logger().warn('Failed to read camera frame')
             return
 
+        # Flip frame horizontally for more intuitive control
+        frame = cv2.flip(frame, 1)
+        
         # Convert BGR to RGB
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         
@@ -52,45 +65,53 @@ class GripperControlNode(Node):
         results = self.hands.process(frame_rgb)
         
         if results.multi_hand_landmarks:
-            hand_landmarks = results.multi_hand_landmarks[0]  # Get first hand
-            
-            # Draw landmarks on frame
-            self.mp_draw.draw_landmarks(
-                frame,
-                hand_landmarks,
-                self.mp_hands.HAND_CONNECTIONS
-            )
-            
-            # Calculate distance between thumb and index finger
-            thumb_tip = hand_landmarks.landmark[4]  # Thumb tip
-            index_tip = hand_landmarks.landmark[8]  # Index finger tip
-            
-            distance = np.sqrt(
-                (thumb_tip.x - index_tip.x)**2 +
-                (thumb_tip.y - index_tip.y)**2
-            )
-            
-            # Determine gripper command based on gesture
-            command = None
-            if distance < self.command_threshold:
-                command = 'close'  # Close fingers together
-            else:
-                command = 'open'   # Fingers apart
+            for idx, hand_landmarks in enumerate(results.multi_hand_landmarks):
+                # Draw landmarks
+                self.mp_draw.draw_landmarks(
+                    frame,
+                    hand_landmarks,
+                    self.mp_hands.HAND_CONNECTIONS
+                )
                 
-            # Only publish if command changes
-            if command != self.last_command:
-                self.publish_gripper_command(command)
-                self.last_command = command
-                self.get_logger().info(f'Sending gripper command: {command}')
+                # Calculate distance between thumb and index finger
+                thumb_tip = hand_landmarks.landmark[4]
+                index_tip = hand_landmarks.landmark[8]
+                
+                distance = np.sqrt(
+                    (thumb_tip.x - index_tip.x)**2 +
+                    (thumb_tip.y - index_tip.y)**2
+                )
+                
+                # Normalize distance to gripper position
+                gripper_position = np.interp(
+                    distance,
+                    [0.05, 0.3],  # Input range for hand distance
+                    [self.gripper_max, self.gripper_min]  # Output range for gripper
+                )
+                
+                # Determine if left or right hand
+                if results.multi_handedness[idx].classification[0].label == "Left":
+                    if abs(gripper_position - self.last_left_position) > 0.001:
+                        self.publish_gripper_command(gripper_position, is_left=True)
+                        self.last_left_position = gripper_position
+                        self.get_logger().info(f'Left gripper position: {gripper_position}')
+                else:  # Right hand
+                    if abs(gripper_position - self.last_right_position) > 0.001:
+                        self.publish_gripper_command(gripper_position, is_left=False)
+                        self.last_right_position = gripper_position
+                        self.get_logger().info(f'Right gripper position: {gripper_position}')
         
         # Display frame
         cv2.imshow('Hand Tracking', frame)
         cv2.waitKey(1)
 
-    def publish_gripper_command(self, command):
-        msg = String()
-        msg.data = command
-        self.gripper_pub.publish(msg)
+    def publish_gripper_command(self, position, is_left=True):
+        msg = Float64MultiArray()
+        msg.data = [position]
+        if is_left:
+            self.left_gripper_pub.publish(msg)
+        else:
+            self.right_gripper_pub.publish(msg)
 
     def __del__(self):
         self.cap.release()
