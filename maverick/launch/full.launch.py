@@ -37,19 +37,19 @@ def generate_launch_description():
         ),
 
         # Pose detection node
-        Node(package=package_name, executable='poseDetection', output='screen'),
+        # Node(package=package_name, executable='poseDetection', output='screen'),
 
-        # Pose Display node
-        Node(package=package_name, executable='poseDisplay', output='screen'),
+        # # Pose Display node
+        # Node(package=package_name, executable='poseDisplay', output='screen'),
 
-        # Joint state publisher node
-        Node(package=package_name, executable='jointStatePublisher', output='screen'),
+        # # Joint state publisher node
+        # Node(package=package_name, executable='jointStatePublisher', output='screen'),
 
-        # Display joint states node
-        Node(package=package_name, executable='displayJointStates', output='screen'),
+        # # Display joint states node
+        # Node(package=package_name, executable='displayJointStates', output='screen'),
 
         Node(package=package_name, executable='gripperControl', output='screen'),
-    
+
         # RViz
         Node(package='rviz2', executable='rviz2', output='screen', arguments=['-d', LaunchConfiguration('rviz_config')])
     ])
