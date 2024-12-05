@@ -47,6 +47,12 @@ class GripperControlNode(Node):
         self.gripper_min = -0.01
         self.gripper_max = 0.019
 
+        # Add smoothing factor
+        self.smoothing_factor = 0.3
+        self.previous_position = 0.0
+        self.max_velocity = 0.1  # Max position change per update
+        self.last_update_time = self.get_clock().now()
+
     def process_frame(self):
         ret, frame = self.cap.read()
         if not ret:
@@ -79,8 +85,8 @@ class GripperControlNode(Node):
                 # Map distance to gripper position
                 gripper_pos = np.interp(
                     distance,
-                    [0.02, 0.2],  # Input range (distance)
-                    [self.gripper_min, self.gripper_max]  # Output range (gripper position)
+                    [0.01, 0.15],  # Smaller input range for more precise control
+                    [self.gripper_min, self.gripper_max]
                 )
 
                 # Determine if left or right hand
@@ -95,6 +101,18 @@ class GripperControlNode(Node):
             self.cleanup()
 
     def publish_gripper_command(self, position, is_left=True):
+        current_time = self.get_clock().now()
+        dt = (current_time - self.last_update_time).nanoseconds / 1e9
+        
+        # Limit position change based on velocity
+        max_position_change = self.max_velocity * dt
+        position_change = position - self.previous_position
+        if abs(position_change) > max_position_change:
+            position = self.previous_position + max_position_change * np.sign(position_change)
+            
+        self.previous_position = position
+        self.last_update_time = current_time
+        
         msg = Float64MultiArray()
         msg.data = [position]
         
