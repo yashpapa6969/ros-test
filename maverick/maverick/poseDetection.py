@@ -52,17 +52,52 @@ class PoseDetectionPublisher(Node):
 
     def plot_landmarks_and_publish(self, landmarks):
         landmarks_labels = {
-            11: "left_shoulder", 12: "right_shoulder",
-            13: "left_elbow", 14: "right_elbow",
-            15: "left_wrist", 16: "right_wrist",
-            23: "left_hip", 24: "right_hip",
+            # Left arm
+            11: "left_shoulder", 
+            13: "left_elbow",
+            15: "left_wrist",
+            # Right arm  
+            12: "right_shoulder",
+            14: "right_elbow", 
+            16: "right_wrist",
+            # Reference points for normalization
+            23: "left_hip",
+            24: "right_hip",
         }
+        
         pose_landmark_msg = PoseLandmark()
+        
+        # Get reference points for normalization
+        left_shoulder = landmarks.landmark[11]
+        right_shoulder = landmarks.landmark[12]
+        left_hip = landmarks.landmark[23] 
+        right_hip = landmarks.landmark[24]
+        
+        # Calculate torso center as origin
+        origin_x = (left_shoulder.x + right_shoulder.x + left_hip.x + right_hip.x) / 4
+        origin_y = (left_shoulder.y + right_shoulder.y + left_hip.y + right_hip.y) / 4
+        origin_z = (left_shoulder.z + right_shoulder.z + left_hip.z + right_hip.z) / 4
+        
+        # Calculate scale factor based on shoulder width
+        shoulder_width = ((right_shoulder.x - left_shoulder.x)**2 + 
+                         (right_shoulder.y - left_shoulder.y)**2 + 
+                         (right_shoulder.z - left_shoulder.z)**2)**0.5
+        
+        # Process each landmark
         for idx, landmark in enumerate(landmarks.landmark):
             if idx in landmarks_labels:
+                # Normalize coordinates relative to torso center and shoulder width
+                norm_x = (landmark.x - origin_x) / shoulder_width
+                norm_y = (landmark.y - origin_y) / shoulder_width  
+                norm_z = (landmark.z - origin_z) / shoulder_width
+                
                 label = landmarks_labels[idx]
                 pose_landmark_msg.label.append(label)
-                pose_landmark_msg.point.append(Point(x=landmark.x, y=landmark.y, z=landmark.z))
+                pose_landmark_msg.point.append(Point(
+                    x=norm_x,
+                    y=norm_y, 
+                    z=norm_z
+                ))
 
         self.publisher_.publish(pose_landmark_msg)
 
