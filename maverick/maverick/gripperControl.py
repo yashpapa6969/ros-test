@@ -2,8 +2,7 @@
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
-from std_msgs.msg import Float64
-from geometry_msgs.msg import PoseStamped
+from std_msgs.msg import String
 import cv2
 import mediapipe as mp
 import numpy as np
@@ -11,14 +10,12 @@ import numpy as np
 class GripperControlNode(Node):
     def __init__(self):
         super().__init__('gripper_control')
-        self.declare_parameter('side', 'right')
-        self.side = self.get_parameter('side').value
         
         # Initialize MediaPipe hands
         self.mp_hands = mp.solutions.hands
         self.hands = self.mp_hands.Hands(
             static_image_mode=False,
-            max_num_hands=2,
+            max_num_hands=1,  # Only track one hand
             min_detection_confidence=0.5,
             min_tracking_confidence=0.5
         )
@@ -29,14 +26,18 @@ class GripperControlNode(Node):
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
             
-        # Publisher for gripper joint state
+        # Publisher for gripper commands
         self.gripper_pub = self.create_publisher(
-            JointState,
-            f'/{self.side}_gripper_joint',
+            String,
+            '/gripper/command',
             10)
             
         # Create timer for camera processing
         self.create_timer(0.03, self.process_frame)  # ~30fps
+        
+        # State variables
+        self.last_command = None
+        self.command_threshold = 0.15  # Threshold for grip/release detection
 
     def process_frame(self):
         success, frame = self.cap.read()
@@ -51,41 +52,45 @@ class GripperControlNode(Node):
         results = self.hands.process(frame_rgb)
         
         if results.multi_hand_landmarks:
-            for hand_landmarks in results.multi_hand_landmarks:
-                # Draw landmarks on frame
-                self.mp_draw.draw_landmarks(
-                    frame,
-                    hand_landmarks,
-                    self.mp_hands.HAND_CONNECTIONS
-                )
+            hand_landmarks = results.multi_hand_landmarks[0]  # Get first hand
+            
+            # Draw landmarks on frame
+            self.mp_draw.draw_landmarks(
+                frame,
+                hand_landmarks,
+                self.mp_hands.HAND_CONNECTIONS
+            )
+            
+            # Calculate distance between thumb and index finger
+            thumb_tip = hand_landmarks.landmark[4]  # Thumb tip
+            index_tip = hand_landmarks.landmark[8]  # Index finger tip
+            
+            distance = np.sqrt(
+                (thumb_tip.x - index_tip.x)**2 +
+                (thumb_tip.y - index_tip.y)**2
+            )
+            
+            # Determine gripper command based on gesture
+            command = None
+            if distance < self.command_threshold:
+                command = 'close'  # Close fingers together
+            else:
+                command = 'open'   # Fingers apart
                 
-                # Calculate gripper position based on thumb and index finger distance
-                thumb_tip = hand_landmarks.landmark[4]  # Thumb tip
-                index_tip = hand_landmarks.landmark[8]  # Index finger tip
-                
-                # Calculate distance between thumb and index finger
-                distance = np.sqrt(
-                    (thumb_tip.x - index_tip.x)**2 +
-                    (thumb_tip.y - index_tip.y)**2
-                )
-                
-                # Normalize distance to gripper position (0-1)
-                # You may need to adjust these thresholds
-                gripper_pos = np.clip((distance - 0.1) / 0.2, 0.0, 1.0)
-                
-                # Publish gripper position
-                self.publish_gripper_position(gripper_pos)
+            # Only publish if command changes
+            if command != self.last_command:
+                self.publish_gripper_command(command)
+                self.last_command = command
+                self.get_logger().info(f'Sending gripper command: {command}')
         
         # Display frame
-        cv2.imshow(f'{self.side} Hand Tracking', frame)
+        cv2.imshow('Hand Tracking', frame)
         cv2.waitKey(1)
 
-    def publish_gripper_position(self, position):
-        joint_state = JointState()
-        joint_state.header.stamp = self.get_clock().now().to_msg()
-        joint_state.name = [f'{self.side}_gripper_joint']
-        joint_state.position = [position]
-        self.gripper_pub.publish(joint_state)
+    def publish_gripper_command(self, command):
+        msg = String()
+        msg.data = command
+        self.gripper_pub.publish(msg)
 
     def __del__(self):
         self.cap.release()
