@@ -3,6 +3,8 @@
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
+from visualization_msgs.msg import Marker, MarkerArray
+from geometry_msgs.msg import Point
 import cv2
 import mediapipe as mp
 import numpy as np
@@ -10,7 +12,12 @@ import numpy as np
 class HandTrackingNode(Node):
     def __init__(self):
         super().__init__('hand_tracking_node')
-        self.publisher_ = self.create_publisher(JointState, '/hand_tracking/joint_states', 10)
+        
+        # Publishers
+        self.joint_pub = self.create_publisher(JointState, '/joint_states', 10)
+        self.marker_pub = self.create_publisher(MarkerArray, '/hand_markers', 10)
+        
+        # Parameters
         self.declare_parameter('camera_index', 0)
         self.camera_index = self.get_parameter('camera_index').value
         
@@ -26,59 +33,34 @@ class HandTrackingNode(Node):
             min_detection_confidence=0.7,
             min_tracking_confidence=0.5
         )
-
-        # Define joint names that correspond to your URDF
-        self.joint_names = [
-            'index_mcp_joint', 'index_pip_joint', 'index_dip_joint',
-            'middle_mcp_joint', 'middle_pip_joint', 'middle_dip_joint',
-            'ring_mcp_joint', 'ring_pip_joint', 'ring_dip_joint',
-            'pinky_mcp_joint', 'pinky_pip_joint', 'pinky_dip_joint',
-            'thumb_cmc_joint', 'thumb_mcp_joint', 'thumb_ip_joint'
-        ]
         
-        # Create timer for processing
+        # Create timer
         self.timer = self.create_timer(0.033, self.timer_callback)  # 30fps
 
-    def calculate_joint_angles(self, hand_landmarks):
-        positions = []
-        for landmark in hand_landmarks.landmark:
-            positions.append([landmark.x, landmark.y, landmark.z])
-        positions = np.array(positions)
+    def create_hand_marker(self, landmarks, marker_id):
+        marker = Marker()
+        marker.header.frame_id = "camera_link"
+        marker.header.stamp = self.get_clock().now().to_msg()
+        marker.id = marker_id
+        marker.type = Marker.SPHERE_LIST
+        marker.action = Marker.ADD
+        marker.scale.x = 0.01
+        marker.scale.y = 0.01
+        marker.scale.z = 0.01
+        marker.color.a = 1.0
+        marker.color.r = 1.0
+        marker.color.g = 0.0
+        marker.color.b = 0.0
         
-        # Calculate joint angles (simplified example)
-        joint_angles = []
-        
-        # Index finger joints (3 angles)
-        for i in range(5, 8):
-            angle = np.arctan2(positions[i+1][1] - positions[i][1],
-                             positions[i+1][0] - positions[i][0])
-            joint_angles.append(angle)
-        
-        # Middle finger joints (3 angles)
-        for i in range(9, 12):
-            angle = np.arctan2(positions[i+1][1] - positions[i][1],
-                             positions[i+1][0] - positions[i][0])
-            joint_angles.append(angle)
-        
-        # Ring finger joints (3 angles)
-        for i in range(13, 16):
-            angle = np.arctan2(positions[i+1][1] - positions[i][1],
-                             positions[i+1][0] - positions[i][0])
-            joint_angles.append(angle)
-        
-        # Pinky joints (3 angles)
-        for i in range(17, 20):
-            angle = np.arctan2(positions[i+1][1] - positions[i][1],
-                             positions[i+1][0] - positions[i][0])
-            joint_angles.append(angle)
-        
-        # Thumb joints (3 angles)
-        for i in range(1, 4):
-            angle = np.arctan2(positions[i+1][1] - positions[i][1],
-                             positions[i+1][0] - positions[i][0])
-            joint_angles.append(angle)
-        
-        return joint_angles
+        # Convert landmarks to points
+        for landmark in landmarks.landmark:
+            point = Point()
+            point.x = landmark.x
+            point.y = landmark.y
+            point.z = landmark.z
+            marker.points.append(point)
+            
+        return marker
 
     def timer_callback(self):
         success, image = self.cap.read()
@@ -86,36 +68,33 @@ class HandTrackingNode(Node):
             self.get_logger().warn('Failed to capture frame')
             return
 
-        # Convert the BGR image to RGB
+        # Convert image to RGB
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         results = self.hands.process(image)
 
-        # Prepare joint state message
-        joint_state = JointState()
-        joint_state.header.stamp = self.get_clock().now().to_msg()
-        joint_state.name = self.joint_names
+        # Convert back to BGR for OpenCV
+        image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
 
         if results.multi_hand_landmarks:
-            hand_landmarks = results.multi_hand_landmarks[0]  # Get first hand
+            marker_array = MarkerArray()
             
-            # Calculate joint angles from landmarks
-            joint_angles = self.calculate_joint_angles(hand_landmarks)
+            for idx, hand_landmarks in enumerate(results.multi_hand_landmarks):
+                # Draw landmarks on image
+                self.mp_drawing.draw_landmarks(
+                    image,
+                    hand_landmarks,
+                    self.mp_hands.HAND_CONNECTIONS
+                )
+                
+                # Create and publish markers
+                marker = self.create_hand_marker(hand_landmarks, idx)
+                marker_array.markers.append(marker)
             
-            # Publish joint states
-            joint_state.position = joint_angles
-            
-            # Draw hand landmarks for visualization
-            image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-            self.mp_drawing.draw_landmarks(
-                image,
-                hand_landmarks,
-                self.mp_hands.HAND_CONNECTIONS
-            )
-            
-            cv2.imshow('Hand Tracking', image)
-            cv2.waitKey(1)
+            self.marker_pub.publish(marker_array)
 
-        self.publisher_.publish(joint_state)
+        # Display image
+        cv2.imshow('Hand Tracking', image)
+        cv2.waitKey(1)
 
     def __del__(self):
         self.cap.release()

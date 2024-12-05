@@ -10,6 +10,13 @@ def generate_launch_description():
     default_model_path = descr_path / 'urdf/dexhand-right.xacro'
     default_rviz_config_path = descr_path / 'rviz/urdf.rviz'
 
+    # Model argument
+    model_arg = DeclareLaunchArgument(
+        name='model',
+        default_value=str(default_model_path),
+        description='Path to robot URDF/XACRO file'
+    )
+
     # Camera parameters
     camera_arg = DeclareLaunchArgument(
         name='camera_index',
@@ -17,24 +24,20 @@ def generate_launch_description():
         description='Camera device index'
     )
 
+    # Robot description
     robot_description = ParameterValue(
         Command(['xacro ', LaunchConfiguration('model')]),
         value_type=str
     )
 
-    model_arg = DeclareLaunchArgument(
-        name='model',
-        default_value=str(default_model_path),
-        description='Absolute path to robot urdf file'
-    )
-
     # Hand tracking node
     hand_tracking_node = Node(
         package='dexhand_description',
-        executable='hand_tracking_node.py',
+        executable='hand_tracking_node',
         name='hand_tracking',
         parameters=[{
             'camera_index': LaunchConfiguration('camera_index'),
+            'robot_description': robot_description
         }],
         output='screen'
     )
@@ -43,16 +46,9 @@ def generate_launch_description():
     robot_state_publisher_node = Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
-        parameters=[{'robot_description': robot_description}]
-    )
-
-    # Joint state publisher
-    joint_state_publisher_node = Node(
-        package='joint_state_publisher',
-        executable='joint_state_publisher',
         parameters=[{
-            'use_hand_tracking': True,
-            'source_topic': '/hand_tracking/joint_states'
+            'robot_description': robot_description,
+            'publish_frequency': 30.0
         }]
     )
 
@@ -66,10 +62,9 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
-        camera_arg,
         model_arg,
+        camera_arg,
         hand_tracking_node,
         robot_state_publisher_node,
-        joint_state_publisher_node,
         rviz_node
     ])
