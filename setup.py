@@ -2,13 +2,12 @@ from setuptools import find_packages, setup
 import os
 from glob import glob
 
-
 package_name = 'dexhand_description'
 
 setup(
     name=package_name,
     version='0.0.1',
-    packages=find_packages(exclude=['test']),
+    packages=[package_name],
     data_files=[
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
@@ -18,6 +17,7 @@ setup(
         (os.path.join('share', package_name, 'rviz'), glob('rviz/*')),
         (os.path.join('share', package_name, 'meshes/left'), glob('meshes/left/*')),
         (os.path.join('share', package_name, 'meshes/right'), glob('meshes/right/*')),
+        (os.path.join('lib', package_name), glob('scripts/*')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
