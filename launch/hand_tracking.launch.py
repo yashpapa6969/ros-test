@@ -33,7 +33,7 @@ def generate_launch_description():
     # Hand tracking node
     hand_tracking_node = Node(
         package='dexhand_description',
-        executable='hand_tracking_node',
+        executable='hand_tracking_node.py',
         name='hand_tracking',
         parameters=[{
             'camera_index': LaunchConfiguration('camera_index'),
