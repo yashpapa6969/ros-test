@@ -28,7 +28,8 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'hand_tracking_node = scripts.hand_tracking_node:main'
+            'hand_tracking_node = dexhand_description.scripts.hand_tracking_node:main'
         ],
     },
+    package_dir={'': 'scripts'},
 )
